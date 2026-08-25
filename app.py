@@ -65,7 +65,7 @@ def ask_ai(user_text):
                 "content-type": "application/json",
             },
             json={
-                "model": "llama-3.3-70b-versatile",
+                "model": "llama-3.1-8b-instant",  # Updated to a stable, active Groq model
                 "max_tokens": 400,
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
@@ -160,3 +160,4 @@ def set_webhook():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
+  

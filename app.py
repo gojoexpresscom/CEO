@@ -8,14 +8,24 @@ logger = logging.getLogger("ceo-exchange-bot")
 
 app = Flask(__name__)
 
-# ---- required environment variables (set these in Render, not in this file) ----
+# ---- required environment variables ----
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 ADMIN_CHAT_ID = os.environ["ADMIN_CHAT_ID"]
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "")
 
+# ---- Supabase ----
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
+# ---- Telegram topic used for official announcements ----
+# Put the Announcement topic ID here.
+# Example: 123
+ANNOUNCEMENT_TOPIC_ID = os.environ.get("ANNOUNCEMENT_TOPIC_ID", "")
+
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+
 
 SYSTEM_PROMPT = """You are the official support assistant for CEO Exchange, a real P2P crypto trading platform and Telegram community.
 
@@ -98,8 +108,6 @@ Official CEO Exchange announcements may contain:
 - Important community information
 
 Use official announcement information when it is provided.
-
-If newer official information changes older information, prefer the newer information.
 
 Do not invent announcements.
 
@@ -343,8 +351,6 @@ It does NOT have access to:
 - Private keys
 - Seed phrases
 - OTP codes
-- Private conversations
-- Private messages
 - Private account information
 - KYC information
 - Wallet balances
@@ -371,15 +377,6 @@ STICKERS AND EMOJIS
 You can understand emojis and the meaning of stickers when enough context is provided.
 
 You may naturally use emojis when appropriate.
-
-Examples:
-
-"Sure 👍"
-"Announcement 📢"
-"Support 🛟"
-"Security 🔐"
-"P2P 🔄"
-"Important ⚠️"
 
 Do not spam emojis.
 
@@ -529,18 +526,42 @@ SELL:
 $1 = 180 ETB
 """
 
+
 ESCALATE_KEYWORDS = [
-    "scam", "scammed", "didn't receive", "did not receive",
-    "not received", "no payment", "didn't pay", "did not pay",
-    "hasn't paid", "has not paid", "fraud", "fake proof",
-    "fake receipt", "dispute", "admin help", "need admin",
-    "report", "stuck", "problem with order", "blocked me",
-    "won't release", "wont release", "refund",
-    "cancelled my order", "canceled my order"
+    "scam",
+    "scammed",
+    "didn't receive",
+    "did not receive",
+    "not received",
+    "no payment",
+    "didn't pay",
+    "did not pay",
+    "hasn't paid",
+    "has not paid",
+    "fraud",
+    "fake proof",
+    "fake receipt",
+    "dispute",
+    "admin help",
+    "need admin",
+    "report",
+    "stuck",
+    "problem with order",
+    "blocked me",
+    "won't release",
+    "wont release",
+    "refund",
+    "cancelled my order",
+    "canceled my order"
 ]
 
 
-def send_message(chat_id, text, message_thread_id=None, reply_to_message_id=None):
+def send_message(
+    chat_id,
+    text,
+    message_thread_id=None,
+    reply_to_message_id=None
+):
     payload = {
         "chat_id": chat_id,
         "text": text
@@ -552,17 +573,169 @@ def send_message(chat_id, text, message_thread_id=None, reply_to_message_id=None
     if reply_to_message_id:
         payload["reply_to_message_id"] = reply_to_message_id
 
-    r = requests.post(
-        f"{TELEGRAM_API}/sendMessage",
-        json=payload,
-        timeout=15
-    )
+    try:
+        r = requests.post(
+            f"{TELEGRAM_API}/sendMessage",
+            json=payload,
+            timeout=15
+        )
 
-    if not r.ok:
-        logger.error("sendMessage failed: %s", r.text)
+        if not r.ok:
+            logger.error("sendMessage failed: %s", r.text)
+
+        return r
+
+    except Exception:
+        logger.exception("send_message failed")
+        return None
+
+
+def supabase_headers():
+    return {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json"
+    }
+
+
+def save_subscriber(chat_id, username=None, first_name=None):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        logger.warning("Supabase subscriber storage is not configured.")
+        return False
+
+    try:
+        url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/telegram_subscribers"
+
+        payload = {
+            "chat_id": str(chat_id),
+            "username": username,
+            "first_name": first_name,
+            "subscribed": True
+        }
+
+        response = requests.post(
+            url,
+            headers={
+                **supabase_headers(),
+                "Prefer": "resolution=merge-duplicates,return=minimal"
+            },
+            json=payload,
+            timeout=15
+        )
+
+        if not response.ok:
+            logger.error(
+                "save_subscriber failed: %s",
+                response.text
+            )
+            return False
+
+        return True
+
+    except Exception:
+        logger.exception("save_subscriber failed")
+        return False
+
+
+def remove_subscriber(chat_id):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return False
+
+    try:
+        url = (
+            f"{SUPABASE_URL.rstrip('/')}"
+            f"/rest/v1/telegram_subscribers"
+            f"?chat_id=eq.{chat_id}"
+        )
+
+        response = requests.patch(
+            url,
+            headers=supabase_headers(),
+            json={
+                "subscribed": False
+            },
+            timeout=15
+        )
+
+        if not response.ok:
+            logger.error(
+                "remove_subscriber failed: %s",
+                response.text
+            )
+            return False
+
+        return True
+
+    except Exception:
+        logger.exception("remove_subscriber failed")
+        return False
+
+
+def get_subscribers():
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return []
+
+    try:
+        url = (
+            f"{SUPABASE_URL.rstrip('/')}"
+            f"/rest/v1/telegram_subscribers"
+            f"?subscribed=eq.true"
+            f"&select=chat_id"
+        )
+
+        response = requests.get(
+            url,
+            headers=supabase_headers(),
+            timeout=15
+        )
+
+        if not response.ok:
+            logger.error(
+                "get_subscribers failed: %s",
+                response.text
+            )
+            return []
+
+        data = response.json()
+
+        return [
+            str(row["chat_id"])
+            for row in data
+            if row.get("chat_id")
+        ]
+
+    except Exception:
+        logger.exception("get_subscribers failed")
+        return []
+
+
+def broadcast_announcement(text):
+    subscribers = get_subscribers()
+
+    sent = 0
+    failed = 0
+
+    for chat_id in subscribers:
+
+        response = send_message(
+            chat_id,
+            "📢 CEO Exchange Official Announcement\n\n" + text
+        )
+
+        if response is not None and response.ok:
+            sent += 1
+        else:
+            failed += 1
+
+            # If the user blocked the bot or the chat no longer exists,
+            # remove them from future broadcasts.
+            remove_subscriber(chat_id)
+
+    return sent, failed
 
 
 def handle_command(text):
+
     command = text.lower().split()[0].split("@")[0]
 
     commands = {
@@ -583,7 +756,11 @@ I can help you with:
 • Announcements
 • General CEO Exchange support
 
-Use /help to see all available commands.""",
+📢 By starting this bot, you can also receive official CEO Exchange announcements directly here.
+
+Use /help to see all available commands.
+
+Use /stop if you no longer want announcement notifications.""",
 
         "/help":
         """CEO Exchange Support 🛟
@@ -596,7 +773,8 @@ Use /help to see all available commands.""",
 /security - P2P security and scam prevention
 /dispute - Get help with a trading dispute
 /announcements - View CEO Exchange announcements
-/support - Contact CEO Exchange support""",
+/support - Get CEO Exchange support
+/stop - Stop announcement notifications""",
 
         "/rates":
         """CEO Exchange Reference Rates 💱
@@ -692,9 +870,7 @@ Contact a CEO Exchange admin and keep all relevant evidence for review.""",
         "/announcements":
         """CEO Exchange Announcements 📢
 
-For official CEO Exchange updates, check the official announcement section of the Telegram community.
-
-Announcements may include:
+Official CEO Exchange announcements may include:
 
 • Platform updates
 • New features
@@ -703,21 +879,30 @@ Announcements may include:
 • Maintenance
 • Security alerts
 • Merchant updates
-• Important community information""",
+• Important community information
+
+Check the official CEO Exchange announcement topic for the latest updates.""",
 
         "/support":
         """CEO Exchange Support 🛟
 
 I can help with general CEO Exchange and P2P questions.
 
-For active orders, payment problems, disputes, or account-specific issues, please contact a human CEO Exchange admin."""
+For active orders, payment problems, disputes, or account-specific issues, please contact a human CEO Exchange admin.""",
+
+        "/stop":
+        """🔕 CEO Exchange announcement notifications have been turned off for you.
+
+You can use /start at any time to subscribe again."""
     }
 
     return commands.get(command)
 
 
 def ask_ai(user_text):
+
     try:
+
         resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={
@@ -747,31 +932,47 @@ def ask_ai(user_text):
 
         reply = data["choices"][0]["message"]["content"].strip()
 
-        return reply or "Sorry, I couldn't put together a reply just now - try again in a minute."
+        return reply or (
+            "Sorry, I couldn't put together a reply just now."
+        )
 
     except Exception:
+
         logger.exception("ask_ai failed")
 
-        return "Sorry, I hit an error answering that - an admin can help if it's urgent."
+        return (
+            "Sorry, I hit an error answering that - "
+            "an admin can help if it's urgent."
+        )
 
 
 def looks_like_escalation(text):
+
     t = text.lower()
-    return any(kw in t for kw in ESCALATE_KEYWORDS)
+
+    return any(
+        kw in t
+        for kw in ESCALATE_KEYWORDS
+    )
 
 
 def bot_was_addressed(message):
+
     text = message.get("text", "") or ""
 
     if message.get("chat", {}).get("type") == "private":
         return True
 
-    if BOT_USERNAME and f"@{BOT_USERNAME}".lower() in text.lower():
+    if (
+        BOT_USERNAME
+        and f"@{BOT_USERNAME}".lower() in text.lower()
+    ):
         return True
 
     reply = message.get("reply_to_message")
 
     if reply:
+
         replied_user = reply.get("from", {})
 
         if (
@@ -787,9 +988,15 @@ def bot_was_addressed(message):
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
-    update = request.get_json(force=True, silent=True) or {}
+    update = request.get_json(
+        force=True,
+        silent=True
+    ) or {}
 
-    message = update.get("message") or update.get("edited_message")
+    message = (
+        update.get("message")
+        or update.get("edited_message")
+    )
 
     if not message:
         return jsonify(ok=True)
@@ -805,13 +1012,85 @@ def webhook():
 
     user = message.get("from", {})
 
-    username = user.get("username") or user.get("first_name", "someone")
+    username = (
+        user.get("username")
+        or user.get("first_name")
+        or "someone"
+    )
+
+    first_name = user.get("first_name")
+
+    chat_type = message.get("chat", {}).get("type")
 
     # ============================================
-    # BOT COMMANDS
+    # PRIVATE CHAT / COMMANDS
     # ============================================
 
     if text.startswith("/"):
+
+        command = text.lower().split()[0].split("@")[0]
+
+        # START = subscribe to announcements
+        if command == "/start":
+
+            saved = save_subscriber(
+                chat_id,
+                username,
+                first_name
+            )
+
+            reply = handle_command(text)
+
+            if not saved:
+                reply += (
+                    "\n\n⚠️ I couldn't save your "
+                    "announcement subscription right now."
+                )
+
+            send_message(
+                chat_id,
+                reply,
+                message_thread_id=thread_id,
+                reply_to_message_id=message["message_id"]
+            )
+
+            return jsonify(ok=True)
+
+        # STOP = unsubscribe
+        if command == "/stop":
+
+            remove_subscriber(chat_id)
+
+            send_message(
+                chat_id,
+                handle_command(text),
+                message_thread_id=thread_id,
+                reply_to_message_id=message["message_id"]
+            )
+
+            return jsonify(ok=True)
+
+        # ADMIN ONLY
+        if command == "/subscribers":
+
+            if str(chat_id) != str(ADMIN_CHAT_ID):
+
+                send_message(
+                    chat_id,
+                    "This command is only available to the CEO Exchange administrator."
+                )
+
+                return jsonify(ok=True)
+
+            subscribers = get_subscribers()
+
+            send_message(
+                chat_id,
+                f"📊 CEO Exchange Announcement Subscribers\n\nActive subscribers: {len(subscribers)}"
+            )
+
+            return jsonify(ok=True)
+
         command_reply = handle_command(text)
 
         if command_reply:
@@ -826,6 +1105,42 @@ def webhook():
             return jsonify(ok=True)
 
     # ============================================
+    # ANNOUNCEMENT BROADCAST
+    # ============================================
+
+    # Only process announcements from the configured topic.
+    #
+    # IMPORTANT:
+    # Set ANNOUNCEMENT_TOPIC_ID in Render to the actual
+    # Telegram topic ID for your official announcement topic.
+
+    if (
+        chat_type in ["group", "supergroup"]
+        and thread_id
+        and ANNOUNCEMENT_TOPIC_ID
+        and str(thread_id) == str(ANNOUNCEMENT_TOPIC_ID)
+    ):
+
+        # Do not broadcast commands as announcements.
+        if not text.startswith("/"):
+
+            sent, failed = broadcast_announcement(text)
+
+            logger.info(
+                "Announcement broadcast complete: sent=%s failed=%s",
+                sent,
+                failed
+            )
+
+            # Notify admin only through logs.
+            return jsonify(
+                ok=True,
+                broadcast=True,
+                sent=sent,
+                failed=failed
+            )
+
+    # ============================================
     # ESCALATION
     # ============================================
 
@@ -835,7 +1150,11 @@ def webhook():
             "\U0001F6A8 Possible issue flagged in CEO Exchange\n"
             f"From: @{username} (id {user.get('id')})\n"
             f"Chat: {chat_id}"
-            + (f" (topic id {thread_id})" if thread_id else "")
+            + (
+                f" (topic id {thread_id})"
+                if thread_id
+                else ""
+            )
             + "\n\n"
             f"Message: {text}"
         )
@@ -874,6 +1193,7 @@ def webhook():
 
 @app.route("/", methods=["GET"])
 def health():
+
     return "CEO Exchange bot is running."
 
 
@@ -881,6 +1201,7 @@ def health():
 def set_webhook():
 
     if not PUBLIC_URL:
+
         return jsonify(
             ok=False,
             error="Set the PUBLIC_URL environment variable first."
@@ -898,7 +1219,12 @@ def set_webhook():
 
 if __name__ == "__main__":
 
-    port = int(os.environ.get("PORT", 10000))
+    port = int(
+        os.environ.get(
+            "PORT",
+            10000
+        )
+    )
 
     app.run(
         host="0.0.0.0",

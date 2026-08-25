@@ -1,90 +1,124 @@
 import os
 import logging
+from datetime import datetime, timezone
+
 import requests
 from flask import Flask, request, jsonify
 
-# ============================================================
-# LOGGING
-# ============================================================
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
-)
-
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ceo-exchange-bot")
 
 app = Flask(__name__)
 
-
-# ============================================================
-# ENVIRONMENT VARIABLES
-# ============================================================
-
+# ---- required environment variables ----
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 ADMIN_CHAT_ID = os.environ["ADMIN_CHAT_ID"]
-
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "")
 
-# Supabase
+# ---- Supabase ----
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_SERVICE_ROLE_KEY = os.environ.get(
-    "SUPABASE_SERVICE_ROLE_KEY",
-    ""
-)
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 
-# IMPORTANT:
-# Leave this EMPTY for now.
-# We will get the correct topic ID from Render logs.
-ANNOUNCEMENT_TOPIC_ID = os.environ.get(
-    "ANNOUNCEMENT_TOPIC_ID",
-    ""
-)
+# ---- Telegram topic used for official announcements ----
+# Set this to the numeric topic ID of your Announcement topic.
+ANNOUNCEMENT_TOPIC_ID = os.environ.get("ANNOUNCEMENT_TOPIC_ID", "")
 
-TELEGRAM_API = (
-    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
-)
+TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
 
-# ============================================================
-# CEO EXCHANGE AI SYSTEM PROMPT
-# ============================================================
+SYSTEM_PROMPT = """You are the official support assistant for CEO Exchange, a real P2P crypto trading platform and Telegram community.
 
-SYSTEM_PROMPT = """
-You are the official support assistant for CEO Exchange.
+Your job is to professionally support CEO Exchange members and help them understand CEO Exchange, P2P crypto trading, merchants, exchange rates, orders, escrow, payments, security, disputes, announcements, support information, and general trading concepts.
 
-CEO Exchange is a real P2P crypto trading platform and
-Telegram community.
+CEO Exchange is a real P2P trading project designed for real trading activity, not a demo or educational-only platform.
 
-Your job is to professionally help users understand:
+Always speak respectfully and professionally.
+Be friendly, natural, confident, and helpful.
+Do not sound like a robot or a bank hotline.
 
-- CEO Exchange
-- P2P trading
+==================================================
+CEO EXCHANGE
+==================================================
+
+CEO Exchange is a real P2P crypto trading platform where users can buy and sell crypto with other users and merchants.
+
+CEO Exchange focuses on:
+
+- P2P crypto trading
 - Buying and selling crypto
-- Merchants
-- Orders
+- Merchant offers
+- Local payment methods
+- Order management
+- Escrow-style protection
+- Payment verification
+- Dispute handling
+- User security
+- Merchant trading
+- Community support
+- Exchange-rate information
+
+CEO Exchange is NOT Binance.
+CEO Exchange is NOT officially affiliated with Binance.
+
+You may explain Binance P2P concepts when useful for educational comparison, but never claim Binance operates, owns, guarantees, or controls CEO Exchange.
+
+==================================================
+TELEGRAM SUPPORT
+==================================================
+
+The current AI assistant is designed specifically for support inside the official CEO Exchange Telegram community.
+
+It can help members with:
+
+- CEO Exchange information
+- P2P trading
+- Merchant information
+- Exchange rates
+- Buy and sell prices
+- P2P procedures
 - Escrow
 - Payment verification
 - Security
 - Scam prevention
 - Disputes
-- Announcements
-- Exchange rates
-- General crypto concepts
+- Official announcements
+- Official support information
+- General crypto/P2P education
 
-CEO Exchange is NOT Binance and is not officially affiliated
-with Binance.
+The CEO Exchange website and future website AI features are separate future projects.
 
-Never claim Binance owns, operates, controls, guarantees,
-or officially supports CEO Exchange.
-
-CEO Exchange is intended for real P2P trading activity.
+Do not claim that this Telegram AI currently controls or operates the CEO Exchange website.
 
 ==================================================
-CURRENT CEO EXCHANGE REFERENCE RATES
+ANNOUNCEMENTS
 ==================================================
+
+Official CEO Exchange announcements may contain:
+
+- Platform updates
+- New features
+- P2P updates
+- Exchange-rate updates
+- Maintenance notices
+- Security alerts
+- Merchant updates
+- Support information
+- Promotions
+- Important community information
+
+Use official announcement information when it is provided.
+
+Do not invent announcements.
+
+Do not claim to have automatically read the entire historical Telegram group.
+
+==================================================
+CEO EXCHANGE RATES
+==================================================
+
+Current CEO Exchange reference rates:
 
 BUY:
 $1 USD = 190 ETB
@@ -108,44 +142,145 @@ $10 = 1,800 ETB
 $50 = 9,000 ETB
 $100 = 18,000 ETB
 
-If the user asks for a conversion and it is unclear whether
-they are buying or selling, ask which direction.
+If the user asks for a dollar conversion and the direction is unclear, ask whether they are buying or selling.
 
-These are CEO Exchange reference rates.
+Do not describe these as an official government exchange rate.
 
-Do NOT call them official Ethiopian government rates.
-
-Do NOT call them universal Ethiopian market rates.
+Do not claim they are the universal Ethiopian market rate.
 
 ==================================================
-P2P
+P2P TRADING
 ==================================================
 
 P2P means Peer-to-Peer.
 
+P2P allows users to buy and sell crypto directly with other users or merchants using supported payment methods.
+
 Typical process:
 
-1. Find an offer.
-2. Check price.
+1. Find an available offer.
+2. Check price and amount.
 3. Check payment method.
-4. Check limits.
+4. Check order limits and conditions.
 5. Open the order.
-6. Complete payment.
-7. Provide proof if required.
-8. Seller verifies actual payment.
+6. Complete the required payment.
+7. Provide proof when required.
+8. Seller verifies the actual payment.
 9. Crypto is released.
 10. Order is completed.
 
-Never tell a seller to release crypto only because the buyer
-claims they paid.
+Never tell a seller to release crypto only because the buyer says they paid.
 
-A screenshot is not guaranteed proof of payment.
+Never treat a screenshot as guaranteed proof of payment.
 
 ==================================================
-SECURITY
+ESCROW
 ==================================================
 
-Never ask users for:
+Escrow-style protection can secure crypto during an active P2P order while the buyer and seller complete the payment process.
+
+Example:
+
+Seller creates an offer.
+Buyer accepts.
+Crypto is secured.
+Buyer pays.
+Seller verifies payment.
+Crypto is released.
+Order is completed.
+
+Disputes should be reviewed by the appropriate CEO Exchange admin/support team.
+
+==================================================
+BINANCE P2P
+==================================================
+
+You understand general Binance-style P2P concepts including:
+
+- P2P advertisements
+- Merchants
+- Buy orders
+- Sell orders
+- Payment methods
+- Escrow
+- Order timers
+- Payment confirmation
+- Proof of payment
+- Disputes
+- Merchant reputation
+- Completed orders
+- Trading limits
+- Crypto release
+- Order cancellation
+
+If asked whether CEO Exchange is Binance:
+
+"CEO Exchange is a separate P2P platform. It can use similar P2P concepts such as merchants, escrow, payment verification, and order management, but CEO Exchange is not Binance and is not officially affiliated with Binance."
+
+Never invent Binance fees, limits, policies, or current rules.
+
+==================================================
+MERCHANTS
+==================================================
+
+Merchants provide P2P offers.
+
+Merchant offers can include:
+
+- Price
+- Available amount
+- Payment method
+- Order limits
+- Trading conditions
+
+Users should carefully review an offer before opening an order.
+
+Never guarantee that a specific merchant is safe or legitimate.
+
+==================================================
+BLACK MARKET / PARALLEL MARKET
+==================================================
+
+Understand:
+
+- Black market
+- Black-market rate
+- Parallel market
+- Parallel exchange rate
+- Unofficial exchange rate
+- Street exchange rate
+- Unofficial dollar rate
+
+These terms generally refer to currency exchange outside official or authorized financial channels.
+
+You can explain differences between:
+
+- Bank rates
+- Platform rates
+- P2P rates
+- Merchant rates
+- Unofficial/parallel market rates
+
+Rates can differ because of:
+
+- Supply and demand
+- Liquidity
+- Foreign-currency availability
+- Payment methods
+- Transaction risk
+- Market conditions
+- Fees
+- Trading volume
+
+Do not present an unofficial market rate as an official CEO Exchange rate.
+
+Do not provide instructions for hiding transactions, money laundering, falsifying information, avoiding authorities, or bypassing financial controls.
+
+==================================================
+PAYMENT SECURITY
+==================================================
+
+Never tell users to share:
 
 - Passwords
 - Private keys
@@ -153,47 +288,116 @@ Never ask users for:
 - OTP codes
 - Authentication codes
 
-Never tell users to release crypto outside an active order.
+Never tell users to release crypto outside the order.
 
-Warn about:
+Common scams include:
 
 - Fake payment screenshots
 - Fake receipts
+- Fake bank notifications
 - Fake admins
 - Fake support accounts
-- Phishing
-- Social engineering
+- Phishing links
 - Edited transaction screenshots
+- Social engineering
 - Fake crypto release messages
+- Chargeback attempts
 
-If something looks suspicious, tell the user to stop and
-contact a CEO Exchange admin.
+If something looks suspicious, tell the user to stop and contact an admin.
+
+==================================================
+PROOF OF PAYMENT
+==================================================
+
+A screenshot, SMS, or receipt does not automatically prove that funds were received.
+
+Sellers should check their actual payment account before releasing crypto.
 
 ==================================================
 DISPUTES
 ==================================================
 
-Escalate:
+Escalate issues involving:
 
 - Scam
 - Fraud
 - Missing payment
 - Payment not received
 - Fake proof
-- Wrong payment
+- Wrong payment amount
+- Buyer did not pay
+- Seller did not release crypto
 - Stuck order
-- Seller not releasing crypto
-- Refund problems
-- Suspicious transactions
-- Account problems
+- Refund problem
+- Suspicious transaction
+- Account problem
 
 Do not decide who is right or wrong.
 
-Do not guarantee refunds.
+Do not promise refunds.
 
-Do not guarantee recovery of funds.
+Do not promise that funds will definitely be recovered.
 
-Tell the user to keep evidence and allow an admin to review.
+Tell users to keep relevant evidence and allow an admin to review the situation.
+
+==================================================
+PRIVACY
+==================================================
+
+The AI is a Telegram support assistant.
+
+It does NOT have access to:
+
+- Passwords
+- Private keys
+- Seed phrases
+- OTP codes
+- Private account information
+- KYC information
+- Wallet balances
+- Transaction history
+
+Never pretend to see private user information.
+
+Do not behave as a personal memory assistant.
+
+==================================================
+TELEGRAM HISTORY
+==================================================
+
+Use official CEO Exchange announcements and approved support information when available.
+
+Do not claim to have automatically read the entire past Telegram group.
+
+Do not claim to see private Telegram conversations.
+
+==================================================
+STICKERS AND EMOJIS
+==================================================
+
+You can understand emojis and the meaning of stickers when enough context is provided.
+
+You may naturally use emojis when appropriate.
+
+Do not spam emojis.
+
+Do not claim you can send Telegram stickers unless the bot is specifically programmed to send them.
+
+==================================================
+REAL TRADING
+==================================================
+
+CEO Exchange is intended for real P2P trading activity.
+
+Do not describe CEO Exchange as:
+
+- A demo
+- A simulation
+- An educational-only platform
+
+Treat real-money trading questions seriously.
+
+Prioritize accurate information, payment verification, security, and proper support escalation.
 
 ==================================================
 ACCOUNT INFORMATION
@@ -212,74 +416,121 @@ You do NOT have live access to:
 - Payment accounts
 - Private account information
 
-Never pretend to see private information.
+Never pretend to see these things.
 
 ==================================================
-TELEGRAM
+PLATFORM RULES
 ==================================================
 
-This AI is a Telegram support assistant.
+If you are not certain about an exact CEO Exchange rule, do not invent it.
 
-Do not claim to automatically know the entire Telegram
-history.
+This includes:
 
-Do not claim to see private Telegram conversations.
+- Fees
+- Limits
+- Processing times
+- Withdrawal rules
+- Deposit rules
+- KYC requirements
+- Merchant requirements
+- Account restrictions
+- Payment methods
 
-Official announcements should only be treated as official
-when they are actually provided by the CEO Exchange system.
+Tell the user that an admin should confirm the current rule.
+
+==================================================
+FUTURE PROJECTS
+==================================================
+
+CEO Exchange is an actively developing project.
+
+Future projects may include:
+
+- Website improvements
+- AI features
+- New trading features
+- New payment methods
+- Merchant features
+- Community features
+- Additional platform services
+
+Do not claim a future feature is already available unless officially announced.
 
 ==================================================
 COMMUNICATION STYLE
 ==================================================
 
-Be:
+Always be respectful.
 
-- Friendly
-- Professional
-- Natural
-- Clear
-- Helpful
+Be natural and professional.
+
+Use phrases such as:
+
+"Absolutely."
+"I understand."
+"Sure, let me explain."
+"Here's how it works."
+"For your security..."
+"Please check the order details carefully."
+
+Do not insult users.
+Do not argue.
+Do not make fun of users.
 
 Simple question = simple answer.
 
 Detailed question = detailed answer.
 
-Never insult users.
-
-Never argue with users.
-
-Never invent CEO Exchange rules.
-
-If you are unsure about an exact fee, limit, KYC requirement,
-processing time, withdrawal rule, merchant requirement, or
-other platform rule, tell the user that an admin should
-confirm the current rule.
-
 ==================================================
 IMPORTANT
 ==================================================
 
-Never invent information.
+You represent CEO Exchange professionally.
+
+Understand:
+
+CEO Exchange
+P2P trading
+Binance-style P2P mechanics
+Escrow
+Merchants
+Buy and sell orders
+Payment verification
+Proof of payment
+Disputes
+Trading limits
+Exchange rates
+Buy/sell spreads
+P2P rates
+Unofficial/parallel markets
+Black-market terminology
+Crypto security
+P2P scams
+Official announcements
+Telegram community support
+Real P2P trading
+
+Never make up information.
 
 Never claim access to private user data.
 
 Never guarantee a trade is safe.
 
-Never claim to have read Telegram history that was not
-provided to you.
+Never claim to have read Telegram history that has not actually been provided.
+
+Current CEO Exchange reference rates:
+
+BUY:
+$1 = 190 ETB
+
+SELL:
+$1 = 180 ETB
 """
 
-
-# ============================================================
-# ESCALATION KEYWORDS
-# ============================================================
 
 ESCALATE_KEYWORDS = [
     "scam",
     "scammed",
-    "fraud",
-    "fake proof",
-    "fake receipt",
     "didn't receive",
     "did not receive",
     "not received",
@@ -288,6 +539,9 @@ ESCALATE_KEYWORDS = [
     "did not pay",
     "hasn't paid",
     "has not paid",
+    "fraud",
+    "fake proof",
+    "fake receipt",
     "dispute",
     "admin help",
     "need admin",
@@ -299,457 +553,344 @@ ESCALATE_KEYWORDS = [
     "wont release",
     "refund",
     "cancelled my order",
-    "canceled my order"
+    "canceled my order",
+]
+
+# Telegram error phrases that mean "this chat can never receive messages
+# again" rather than a transient failure - safe to unsubscribe on.
+UNREACHABLE_MARKERS = [
+    "bot was blocked",
+    "user is deactivated",
+    "chat not found",
+    "peer_id_invalid",
+    "bot can't initiate conversation",
+    "bot is not a member",
 ]
 
 
-# ============================================================
-# TELEGRAM SEND MESSAGE
-# ============================================================
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
 
-def send_message(
-    chat_id,
-    text,
-    message_thread_id=None,
-    reply_to_message_id=None
-):
 
-    payload = {
-        "chat_id": chat_id,
-        "text": text
-    }
+def send_message(chat_id, text, message_thread_id=None, reply_to_message_id=None):
+    payload = {"chat_id": chat_id, "text": text}
 
     if message_thread_id:
         payload["message_thread_id"] = message_thread_id
 
     if reply_to_message_id:
-        payload["reply_to_message_id"] = (
-            reply_to_message_id
-        )
+        payload["reply_to_message_id"] = reply_to_message_id
 
     try:
-
-        response = requests.post(
-            f"{TELEGRAM_API}/sendMessage",
-            json=payload,
-            timeout=15
-        )
-
-        if not response.ok:
-
-            logger.error(
-                "Telegram sendMessage failed: %s",
-                response.text
-            )
-
-        return response
-
+        r = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=15)
+        if not r.ok:
+            logger.error("sendMessage failed chat_id=%s: %s", chat_id, r.text)
+        return r
     except Exception:
-
-        logger.exception(
-            "send_message failed"
-        )
-
+        logger.exception("send_message failed chat_id=%s", chat_id)
         return None
 
 
-# ============================================================
-# SUPABASE HEADERS
-# ============================================================
+def is_unreachable_error(response):
+    """Inspect a failed Telegram response and decide whether the chat is
+    permanently unreachable (blocked bot, deleted account, etc).
+    Returns (unreachable: bool, description: str or None).
+    """
+    if response is None:
+        return False, "no response from Telegram"
+
+    try:
+        data = response.json()
+    except Exception:
+        return False, response.text if hasattr(response, "text") else None
+
+    description = data.get("description") or ""
+    lowered = description.lower()
+
+    for marker in UNREACHABLE_MARKERS:
+        if marker in lowered:
+            return True, description
+
+    return False, description or None
+
+
+def supabase_configured():
+    return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+
 
 def supabase_headers():
-
     return {
         "apikey": SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": (
-            f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"
-        ),
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
     }
 
 
-# ============================================================
-# SAVE / UPDATE TELEGRAM SUBSCRIBER
-# ============================================================
+# ============================================
+# SUBSCRIBERS
+# ============================================
 
-def save_subscriber(
-    chat_id,
-    username=None,
-    first_name=None
-):
 
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-
-        logger.warning(
-            "Supabase is not configured."
-        )
-
+def save_subscriber(chat_id, username=None, first_name=None):
+    if not supabase_configured():
+        logger.warning("Supabase subscriber storage is not configured.")
         return False
 
     try:
-
-        url = (
-            f"{SUPABASE_URL.rstrip('/')}"
-            "/rest/v1/telegram_subscribers"
-        )
-
+        url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/telegram_subscribers?on_conflict=chat_id"
+        now = now_iso()
         payload = {
             "chat_id": str(chat_id),
             "username": username,
             "first_name": first_name,
-            "subscribed": True
+            "subscribed": True,
+            "updated_at": now,
+            "last_seen_at": now,
         }
-
         response = requests.post(
             url,
-            headers={
-                **supabase_headers(),
-                "Prefer": (
-                    "resolution=merge-duplicates,"
-                    "return=minimal"
-                )
-            },
+            headers={**supabase_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
             json=payload,
-            timeout=15
+            timeout=15,
         )
-
         if not response.ok:
-
-            logger.error(
-                "save_subscriber failed: %s",
-                response.text
-            )
-
+            logger.error("save_subscriber failed chat_id=%s: %s", chat_id, response.text)
             return False
-
         return True
-
     except Exception:
-
-        logger.exception(
-            "save_subscriber failed"
-        )
-
+        logger.exception("save_subscriber failed chat_id=%s", chat_id)
         return False
 
-
-# ============================================================
-# UPDATE LAST SEEN
-# ============================================================
-
-def update_last_seen(
-    chat_id,
-    username=None,
-    first_name=None
-):
-
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-        return False
-
-    try:
-
-        url = (
-            f"{SUPABASE_URL.rstrip('/')}"
-            "/rest/v1/telegram_subscribers"
-            f"?chat_id=eq.{chat_id}"
-        )
-
-        payload = {
-            "username": username,
-            "first_name": first_name,
-            "subscribed": True,
-            "last_seen_at": "now()"
-        }
-
-        response = requests.patch(
-            url,
-            headers=supabase_headers(),
-            json=payload,
-            timeout=15
-        )
-
-        return response.ok
-
-    except Exception:
-
-        logger.exception(
-            "update_last_seen failed"
-        )
-
-        return False
-
-
-# ============================================================
-# UNSUBSCRIBE
-# ============================================================
 
 def remove_subscriber(chat_id):
-
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+    if not supabase_configured():
         return False
 
     try:
-
-        url = (
-            f"{SUPABASE_URL.rstrip('/')}"
-            "/rest/v1/telegram_subscribers"
-            f"?chat_id=eq.{chat_id}"
-        )
-
+        url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/telegram_subscribers?chat_id=eq.{chat_id}"
         response = requests.patch(
             url,
             headers=supabase_headers(),
-            json={
-                "subscribed": False
-            },
-            timeout=15
+            json={"subscribed": False, "updated_at": now_iso()},
+            timeout=15,
         )
-
-        return response.ok
-
+        if not response.ok:
+            logger.error("remove_subscriber failed chat_id=%s: %s", chat_id, response.text)
+            return False
+        return True
     except Exception:
-
-        logger.exception(
-            "remove_subscriber failed"
-        )
-
+        logger.exception("remove_subscriber failed chat_id=%s", chat_id)
         return False
 
 
-# ============================================================
-# GET ACTIVE SUBSCRIBERS
-# ============================================================
+def touch_last_seen(chat_id):
+    """Update last_seen_at for an existing, currently-subscribed row.
+    No-op (0 rows matched) if the chat_id isn't a subscriber - safe to
+    call on every private message without checking first.
+    """
+    if not supabase_configured():
+        return
 
-def get_subscribers():
+    try:
+        url = (
+            f"{SUPABASE_URL.rstrip('/')}/rest/v1/telegram_subscribers"
+            f"?chat_id=eq.{chat_id}&subscribed=eq.true"
+        )
+        requests.patch(url, headers=supabase_headers(), json={"last_seen_at": now_iso()}, timeout=15)
+    except Exception:
+        logger.exception("touch_last_seen failed chat_id=%s", chat_id)
 
-    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+
+def update_subscriber_stats(chat_id, total_announcements_sent=None, total_delivery_failures=None, last_announcement_at=None):
+    if not supabase_configured():
+        return
+
+    payload = {"updated_at": now_iso()}
+    if total_announcements_sent is not None:
+        payload["total_announcements_sent"] = total_announcements_sent
+    if total_delivery_failures is not None:
+        payload["total_delivery_failures"] = total_delivery_failures
+    if last_announcement_at is not None:
+        payload["last_announcement_at"] = last_announcement_at
+
+    try:
+        url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/telegram_subscribers?chat_id=eq.{chat_id}"
+        response = requests.patch(url, headers=supabase_headers(), json=payload, timeout=15)
+        if not response.ok:
+            logger.error("update_subscriber_stats failed chat_id=%s: %s", chat_id, response.text)
+    except Exception:
+        logger.exception("update_subscriber_stats failed chat_id=%s", chat_id)
+
+
+def get_active_subscribers():
+    """Returns a list of dicts: chat_id, total_announcements_sent,
+    total_delivery_failures - for every currently subscribed chat.
+    """
+    if not supabase_configured():
         return []
 
     try:
-
         url = (
-            f"{SUPABASE_URL.rstrip('/')}"
-            "/rest/v1/telegram_subscribers"
-            "?subscribed=eq.true"
-            "&select=chat_id"
+            f"{SUPABASE_URL.rstrip('/')}/rest/v1/telegram_subscribers"
+            f"?subscribed=eq.true&select=chat_id,total_announcements_sent,total_delivery_failures"
         )
+        response = requests.get(url, headers=supabase_headers(), timeout=15)
+        if not response.ok:
+            logger.error("get_active_subscribers failed: %s", response.text)
+            return []
+        return response.json()
+    except Exception:
+        logger.exception("get_active_subscribers failed")
+        return []
 
-        response = requests.get(
+
+# ============================================
+# ANNOUNCEMENTS
+# ============================================
+
+
+def create_announcement(text, topic_id=None):
+    if not supabase_configured():
+        return None
+
+    try:
+        url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/telegram_announcements"
+        payload = {
+            "message_text": text,
+            "topic_id": str(topic_id) if topic_id else None,
+        }
+        response = requests.post(
+            url,
+            headers={**supabase_headers(), "Prefer": "return=representation"},
+            json=payload,
+            timeout=15,
+        )
+        if not response.ok:
+            logger.error("create_announcement failed: %s", response.text)
+            return None
+
+        data = response.json()
+        if isinstance(data, list) and data:
+            return data[0].get("id")
+        return None
+    except Exception:
+        logger.exception("create_announcement failed")
+        return None
+
+
+def update_announcement_totals(announcement_id, sent, failed):
+    if not supabase_configured() or not announcement_id:
+        return
+
+    try:
+        url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/telegram_announcements?id=eq.{announcement_id}"
+        requests.patch(
             url,
             headers=supabase_headers(),
-            timeout=15
+            json={"total_sent": sent, "total_failed": failed},
+            timeout=15,
         )
-
-        if not response.ok:
-
-            logger.error(
-                "get_subscribers failed: %s",
-                response.text
-            )
-
-            return []
-
-        data = response.json()
-
-        return [
-            str(row["chat_id"])
-            for row in data
-            if row.get("chat_id")
-        ]
-
     except Exception:
-
-        logger.exception(
-            "get_subscribers failed"
-        )
-
-        return []
+        logger.exception("update_announcement_totals failed announcement_id=%s", announcement_id)
 
 
-# ============================================================
-# AI
-# ============================================================
-
-def ask_ai(user_text):
+def record_delivery(announcement_id, chat_id, status, error_message=None):
+    if not supabase_configured() or not announcement_id:
+        return
 
     try:
-
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-
-            headers={
-                "Authorization": (
-                    f"Bearer {GROQ_API_KEY}"
-                ),
-                "Content-Type": "application/json"
-            },
-
-            json={
-                "model": "openai/gpt-oss-20b",
-
-                "max_tokens": 400,
-
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": SYSTEM_PROMPT
-                    },
-                    {
-                        "role": "user",
-                        "content": user_text
-                    }
-                ]
-            },
-
-            timeout=30
-        )
-
-        response.raise_for_status()
-
-        data = response.json()
-
-        reply = (
-            data["choices"][0]["message"]["content"]
-            .strip()
-        )
-
-        return reply or (
-            "Sorry, I couldn't prepare a response right now."
-        )
-
+        url = f"{SUPABASE_URL.rstrip('/')}/rest/v1/telegram_announcement_deliveries"
+        payload = {
+            "announcement_id": announcement_id,
+            "chat_id": str(chat_id),
+            "status": status,
+            "error_message": error_message,
+        }
+        response = requests.post(url, headers=supabase_headers(), json=payload, timeout=15)
+        if not response.ok:
+            logger.error("record_delivery failed chat_id=%s: %s", chat_id, response.text)
     except Exception:
-
-        logger.exception(
-            "ask_ai failed"
-        )
-
-        return (
-            "Sorry, I couldn't answer that right now. "
-            "If this involves an active trade or payment, "
-            "please contact a CEO Exchange admin."
-        )
+        logger.exception("record_delivery failed chat_id=%s", chat_id)
 
 
-# ============================================================
-# ESCALATION DETECTION
-# ============================================================
+def broadcast_announcement(text, topic_id=None):
+    announcement_id = create_announcement(text, topic_id)
+    subscribers = get_active_subscribers()
 
-def looks_like_escalation(text):
+    sent = 0
+    failed = 0
+    now = now_iso()
 
-    text = text.lower()
+    for subscriber in subscribers:
+        chat_id = subscriber.get("chat_id")
+        response = send_message(chat_id, "\U0001F4E2 CEO Exchange Official Announcement\n\n" + text)
 
-    return any(
-        keyword in text
-        for keyword in ESCALATE_KEYWORDS
+        if response is not None and response.ok:
+            sent += 1
+            new_sent_total = (subscriber.get("total_announcements_sent") or 0) + 1
+            update_subscriber_stats(chat_id, total_announcements_sent=new_sent_total, last_announcement_at=now)
+            record_delivery(announcement_id, chat_id, "sent")
+            logger.info("Announcement delivered chat_id=%s", chat_id)
+        else:
+            failed += 1
+            unreachable, description = is_unreachable_error(response)
+            new_failed_total = (subscriber.get("total_delivery_failures") or 0) + 1
+            update_subscriber_stats(chat_id, total_delivery_failures=new_failed_total)
+            record_delivery(announcement_id, chat_id, "failed", description)
+
+            if unreachable:
+                remove_subscriber(chat_id)
+                logger.info("Unsubscribed unreachable chat_id=%s reason=%s", chat_id, description)
+            else:
+                logger.warning("Announcement delivery failed chat_id=%s reason=%s", chat_id, description)
+
+    update_announcement_totals(announcement_id, sent, failed)
+    logger.info(
+        "Broadcast complete announcement_id=%s topic_id=%s sent=%s failed=%s",
+        announcement_id, topic_id, sent, failed,
     )
+    return sent, failed
 
-
-# ============================================================
-# BOT WAS ADDRESSED
-# ============================================================
-
-def bot_was_addressed(message):
-
-    text = message.get("text", "") or ""
-
-    chat_type = (
-        message.get("chat", {}).get("type")
-    )
-
-    # Private chat
-    if chat_type == "private":
-        return True
-
-    # Mention
-    if BOT_USERNAME:
-
-        mention = (
-            f"@{BOT_USERNAME}"
-        ).lower()
-
-        if mention in text.lower():
-            return True
-
-    # Reply to bot
-    reply = message.get(
-        "reply_to_message"
-    )
-
-    if reply:
-
-        replied_user = reply.get(
-            "from",
-            {}
-        )
-
-        if replied_user.get("is_bot"):
-
-            bot_username = (
-                replied_user.get("username", "")
-                .lower()
-            )
-
-            if (
-                bot_username
-                and bot_username
-                == BOT_USERNAME.lower()
-            ):
-                return True
-
-    return False
-
-
-# ============================================================
-# COMMANDS
-# ============================================================
 
 def handle_command(text):
-
-    command = (
-        text.lower()
-        .split()[0]
-        .split("@")[0]
-    )
+    command = text.lower().split()[0].split("@")[0]
 
     commands = {
-
-        "/start":
-        """Welcome to CEO Exchange 👋
+        "/start": """Welcome to CEO Exchange 👋
 
 I am the official CEO Exchange support assistant.
 
-I can help with:
+I can help you with:
 
 • P2P trading
-• Buy & sell rates
+• Exchange rates
+• Buy and sell prices
 • Merchants
 • Security
 • Disputes
 • Announcements
 • General CEO Exchange support
 
-📢 You are now subscribed to official CEO Exchange announcements.
+📢 By starting this bot, you can also receive official CEO Exchange announcements directly here.
 
-Use /help to see available commands.
+Use /help to see all available commands.
 
-Use /stop to stop announcement notifications.""",
+Use /stop if you no longer want announcement notifications.""",
 
-        "/help":
-        """CEO Exchange Support 🛟
+        "/help": """CEO Exchange Support 🛟
 
-/rates — Current CEO Exchange rates
-/buy — USD buy rate
-/sell — USD sell rate
-/p2p — Learn about P2P
-/merchant — Merchant information
-/security — Security & scam prevention
-/dispute — Trading dispute help
-/announcements — Announcement information
-/support — Human support information
-/stop — Stop announcements""",
+/rates - View current CEO Exchange rates
+/buy - View the USD buy rate
+/sell - View the USD sell rate
+/p2p - Learn how P2P trading works
+/merchant - Learn about P2P merchants
+/security - P2P security and scam prevention
+/dispute - Get help with a trading dispute
+/announcements - View CEO Exchange announcements
+/support - Get CEO Exchange support
+/stop - Stop announcement notifications""",
 
-        "/rates":
-        """CEO Exchange Reference Rates 💱
+        "/rates": """CEO Exchange Reference Rates 💱
 
 BUY:
 $1 = 190 ETB
@@ -757,62 +898,56 @@ $1 = 190 ETB
 SELL:
 $1 = 180 ETB
 
+Examples:
+
 Buying $10 = 1,900 ETB
 Selling $10 = 1,800 ETB""",
 
-        "/buy":
-        """CEO Exchange BUY Rate 💰
+        "/buy": """CEO Exchange BUY Rate 💰
 
 $1 USD = 190 ETB
+
+Examples:
 
 $5 = 950 ETB
 $10 = 1,900 ETB
 $50 = 9,500 ETB
 $100 = 19,000 ETB""",
 
-        "/sell":
-        """CEO Exchange SELL Rate 💰
+        "/sell": """CEO Exchange SELL Rate 💰
 
 $1 USD = 180 ETB
+
+Examples:
 
 $5 = 900 ETB
 $10 = 1,800 ETB
 $50 = 9,000 ETB
 $100 = 18,000 ETB""",
 
-        "/p2p":
-        """P2P Trading 🔄
+        "/p2p": """P2P Trading 🔄
 
-P2P means Peer-to-Peer.
+P2P means Peer-to-Peer trading.
 
-Users can buy and sell crypto with other users or merchants.
+Users can buy and sell crypto with other users or merchants through available offers and supported payment methods.
 
-Always check:
+Always check the order details carefully and verify payments before releasing crypto.""",
 
-• Price
-• Payment method
-• Limits
-• Order conditions
+        "/merchant": """CEO Exchange Merchants 👤
 
-Never release crypto until the actual payment has been verified.""",
+Merchants provide P2P buy and sell offers.
 
-        "/merchant":
-        """CEO Exchange Merchants 👤
-
-Merchants provide P2P offers.
-
-Before opening an order, check:
+Before opening an order, carefully check:
 
 • Price
 • Available amount
 • Payment method
-• Limits
+• Order limits
 • Trading conditions
 
-Never share passwords, OTPs, private keys or seed phrases.""",
+Never share sensitive account information with another user.""",
 
-        "/security":
-        """P2P Security 🔐
+        "/security": """P2P Security 🔐
 
 Never share:
 
@@ -822,28 +957,26 @@ Never share:
 • OTP codes
 • Authentication codes
 
-Never release crypto based only on a screenshot.
+Never release crypto only because someone sends a screenshot saying they paid.
 
-Always verify the actual payment.""",
+Always verify the actual payment in your account.""",
 
-        "/dispute":
-        """CEO Exchange Dispute Support 🛟
+        "/dispute": """CEO Exchange Dispute Support 🛟
 
-For:
+If you have:
 
-• Scam
-• Missing payment
-• Fake proof
-• Stuck order
-• Refund problem
-• Seller not releasing crypto
+• Payment problems
+• A scam report
+• Fake proof of payment
+• A stuck order
+• A refund problem
+• Another trading issue
 
-Keep all evidence and contact a CEO Exchange admin.""",
+Contact a CEO Exchange admin and keep all relevant evidence for review.""",
 
-        "/announcements":
-        """CEO Exchange Official Announcements 📢
+        "/announcements": """CEO Exchange Announcements 📢
 
-Official announcements may include:
+Official CEO Exchange announcements may include:
 
 • Platform updates
 • New features
@@ -852,468 +985,224 @@ Official announcements may include:
 • Maintenance
 • Security alerts
 • Merchant updates
-• Promotions
+• Important community information
 
-You can receive official announcements directly from this bot.""",
+Check the official CEO Exchange announcement topic for the latest updates.""",
 
-        "/support":
-        """CEO Exchange Support 🛟
+        "/support": """CEO Exchange Support 🛟
 
-I can answer general CEO Exchange and P2P questions.
+I can help with general CEO Exchange and P2P questions.
 
-For active orders, payments, disputes or account-specific
-issues, please contact a human CEO Exchange administrator.""",
+For active orders, payment problems, disputes, or account-specific issues, please contact a human CEO Exchange admin.""",
 
-        "/stop":
-        """🔕 Announcement notifications have been turned off.
+        "/stop": """🔕 CEO Exchange announcement notifications have been turned off for you.
 
-Send /start anytime to subscribe again."""
+You can use /start at any time to subscribe again.""",
     }
 
     return commands.get(command)
 
 
-# ============================================================
-# BROADCAST ANNOUNCEMENT
-# ============================================================
-
-def broadcast_announcement(text):
-
-    subscribers = get_subscribers()
-
-    sent = 0
-    failed = 0
-
-    logger.info(
-        "Broadcasting announcement to %s subscribers",
-        len(subscribers)
-    )
-
-    for chat_id in subscribers:
-
-        response = send_message(
-            chat_id,
-            "📢 CEO Exchange Official Announcement\n\n"
-            + text
+def ask_ai(user_text):
+    try:
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "openai/gpt-oss-20b",
+                "max_tokens": 400,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_text},
+                ],
+            },
+            timeout=30,
         )
-
-        if response is not None and response.ok:
-
-            sent += 1
-
-        else:
-
-            failed += 1
-
-            # Telegram may reject the message if the user
-            # blocked the bot or deleted the chat.
-
-            remove_subscriber(chat_id)
-
-    logger.info(
-        "Broadcast finished | sent=%s | failed=%s",
-        sent,
-        failed
-    )
-
-    return sent, failed
+        resp.raise_for_status()
+        data = resp.json()
+        reply = data["choices"][0]["message"]["content"].strip()
+        return reply or "Sorry, I couldn't put together a reply just now."
+    except Exception:
+        logger.exception("ask_ai failed")
+        return "Sorry, I hit an error answering that - an admin can help if it's urgent."
 
 
-# ============================================================
-# WEBHOOK
-# ============================================================
+def looks_like_escalation(text):
+    t = text.lower()
+    return any(kw in t for kw in ESCALATE_KEYWORDS)
 
-@app.route(
-    "/webhook",
-    methods=["POST"]
-)
+
+def bot_was_addressed(message):
+    text = message.get("text", "") or ""
+
+    if message.get("chat", {}).get("type") == "private":
+        return True
+
+    if BOT_USERNAME and f"@{BOT_USERNAME}".lower() in text.lower():
+        return True
+
+    reply = message.get("reply_to_message")
+    if reply:
+        replied_user = reply.get("from", {})
+        if replied_user.get("is_bot") and replied_user.get("username", "").lower() == BOT_USERNAME.lower():
+            return True
+
+    return False
+
+
+@app.route("/webhook", methods=["POST"])
 def webhook():
-
-    update = request.get_json(
-        force=True,
-        silent=True
-    ) or {}
-
-    message = (
-        update.get("message")
-        or update.get("edited_message")
-    )
+    update = request.get_json(force=True, silent=True) or {}
+    message = update.get("message") or update.get("edited_message")
 
     if not message:
+        return jsonify(ok=True)
 
-        return jsonify(
-            ok=True
-        )
-
-    text = (
-        message.get("text", "")
-        or ""
-    )
-
+    text = message.get("text", "") or ""
     if not text:
+        return jsonify(ok=True)
 
-        return jsonify(
-            ok=True
-        )
-
-    chat = message.get(
-        "chat",
-        {}
-    )
-
-    user = message.get(
-        "from",
-        {}
-    )
-
-    chat_id = chat.get("id")
-
-    chat_type = chat.get(
-        "type"
-    )
-
-    thread_id = message.get(
-        "message_thread_id"
-    )
-
-    username = (
-        user.get("username")
-        or user.get("first_name")
-        or "someone"
-    )
-
-    first_name = user.get(
-        "first_name"
-    )
-
-    message_id = message.get(
-        "message_id"
-    )
-
-    # ========================================================
-    # THIS IS THE IMPORTANT LOG
-    # ========================================================
+    chat_id = message["chat"]["id"]
+    message_id = message["message_id"]
+    thread_id = message.get("message_thread_id")
+    user = message.get("from", {})
+    username = user.get("username") or user.get("first_name") or "someone"
+    first_name = user.get("first_name")
+    chat_type = message.get("chat", {}).get("type")
 
     logger.info(
-        "CHAT=%s THREAD=%s TEXT=%s",
-        chat_id,
-        thread_id,
-        text
+        "Incoming message chat_id=%s message_id=%s thread_id=%s username=%s chat_type=%s text=%r",
+        chat_id, message_id, thread_id, username, chat_type, text[:200],
     )
 
-  logger.info(
-        "USER=%s | USER_ID=%s | CHAT_TYPE=%s | MESSAGE_ID=%s",
-        username,
-        user.get("id"),
-        chat_type,
-        message_id
-    )
-
-    # ========================================================
-    # UPDATE USER ACTIVITY
-    # ========================================================
+    # ============================================
+    # PRIVATE CHAT ACTIVITY
+    # ============================================
 
     if chat_type == "private":
+        touch_last_seen(chat_id)
 
-        update_last_seen(
-            chat_id,
-            username,
-            first_name
-        )
-
-    # ========================================================
+    # ============================================
     # COMMANDS
-    # ========================================================
+    # ============================================
 
     if text.startswith("/"):
-
-        command = (
-            text.lower()
-            .split()[0]
-            .split("@")[0]
-        )
-
-        # ----------------------------------------------------
-        # START
-        # ----------------------------------------------------
+        command = text.lower().split()[0].split("@")[0]
 
         if command == "/start":
-
-            saved = save_subscriber(
-                chat_id,
-                username,
-                first_name
-            )
-
-            reply = handle_command(
-                text
-            )
-
-            if not saved:
-
-                reply += (
-                    "\n\n⚠️ Your subscription could not "
-                    "be saved right now."
-                )
+            if chat_type == "private":
+                saved = save_subscriber(chat_id, username, first_name)
+                reply = handle_command(text)
+                if not saved:
+                    reply += "\n\n⚠️ I couldn't save your announcement subscription right now."
+            else:
+                reply = handle_command(text)
 
             send_message(
-                chat_id,
-                reply,
+                chat_id, reply,
                 message_thread_id=thread_id,
-                reply_to_message_id=message_id
+                reply_to_message_id=message_id,
             )
-
-            return jsonify(
-                ok=True
-            )
-
-        # ----------------------------------------------------
-        # STOP
-        # ----------------------------------------------------
+            return jsonify(ok=True)
 
         if command == "/stop":
-
-            remove_subscriber(
-                chat_id
-            )
-
+            remove_subscriber(chat_id)
             send_message(
-                chat_id,
-                handle_command(text),
+                chat_id, handle_command(text),
                 message_thread_id=thread_id,
-                reply_to_message_id=message_id
+                reply_to_message_id=message_id,
             )
-
-            return jsonify(
-                ok=True
-            )
-
-        # ----------------------------------------------------
-        # ADMIN SUBSCRIBER COUNT
-        # ----------------------------------------------------
+            return jsonify(ok=True)
 
         if command == "/subscribers":
+            if str(chat_id) != str(ADMIN_CHAT_ID):
+                send_message(chat_id, "This command is only available to the CEO Exchange administrator.")
+                return jsonify(ok=True)
 
-            if str(chat_id) != str(
-                ADMIN_CHAT_ID
-            ):
+            subscriber_count = len(get_active_subscribers())
+            send_message(chat_id, f"📊 CEO Exchange Announcement Subscribers\n\nActive subscribers: {subscriber_count}")
+            return jsonify(ok=True)
 
-                send_message(
-                    chat_id,
-                    "⛔ Admin only."
-                )
-
-                return jsonify(
-                    ok=True
-                )
-
-            subscribers = get_subscribers()
-
-            send_message(
-                chat_id,
-                "📊 CEO Exchange Subscribers\n\n"
-                f"Active subscribers: {len(subscribers)}"
-            )
-
-            return jsonify(
-                ok=True
-            )
-
-        # ----------------------------------------------------
-        # NORMAL COMMAND
-        # ----------------------------------------------------
-
-        command_reply = handle_command(
-            text
-        )
-
+        command_reply = handle_command(text)
         if command_reply:
-
             send_message(
-                chat_id,
-                command_reply,
+                chat_id, command_reply,
                 message_thread_id=thread_id,
-                reply_to_message_id=message_id
+                reply_to_message_id=message_id,
             )
+            return jsonify(ok=True)
 
-            return jsonify(
-                ok=True
-            )
-
-    # ========================================================
-    # ANNOUNCEMENT TOPIC DETECTION
-    # ========================================================
+    # ============================================
+    # ANNOUNCEMENT BROADCAST
+    # ============================================
+    #
+    # Only messages posted inside the configured announcement topic are
+    # treated as official announcements. Set ANNOUNCEMENT_TOPIC_ID in
+    # Render to that topic's numeric ID.
 
     if (
-        chat_type in [
-            "group",
-            "supergroup"
-        ]
+        chat_type in ["group", "supergroup"]
         and thread_id
+        and ANNOUNCEMENT_TOPIC_ID
+        and str(thread_id) == str(ANNOUNCEMENT_TOPIC_ID)
+        and not text.startswith("/")
     ):
-
-        # ALWAYS SHOW TOPIC INFORMATION IN LOGS
         logger.info(
-            "TELEGRAM TOPIC DETECTED | "
-            "CHAT_ID=%s | THREAD_ID=%s | TEXT=%s",
-            chat_id,
-            thread_id,
-            text
+            "Processing announcement chat_id=%s topic_id=%s message_id=%s",
+            chat_id, thread_id, message_id,
         )
+        sent, failed = broadcast_announcement(text, topic_id=thread_id)
+        return jsonify(ok=True, broadcast=True, sent=sent, failed=failed)
 
-        # Only broadcast after we configure the topic ID.
-        if (
-            ANNOUNCEMENT_TOPIC_ID
-            and str(thread_id)
-            == str(ANNOUNCEMENT_TOPIC_ID)
-        ):
-
-            if not text.startswith("/"):
-
-                sent, failed = (
-                    broadcast_announcement(
-                        text
-                    )
-                )
-
-                return jsonify(
-                    ok=True,
-                    broadcast=True,
-                    sent=sent,
-                    failed=failed
-                )
-
-    # ========================================================
+    # ============================================
     # ESCALATION
-    # ========================================================
+    # ============================================
 
     if looks_like_escalation(text):
-
         alert = (
-            "🚨 CEO Exchange Support Alert\n\n"
-            f"User: @{username}\n"
-            f"User ID: {user.get('id')}\n"
-            f"Chat ID: {chat_id}\n"
-            f"Chat type: {chat_type}\n"
-            f"Thread ID: {thread_id}\n\n"
-            f"Message:\n{text}"
+            "\U0001F6A8 Possible issue flagged in CEO Exchange\n"
+            f"From: @{username} (id {user.get('id')})\n"
+            f"Chat: {chat_id}" + (f" (topic id {thread_id})" if thread_id else "") + "\n\n"
+            f"Message: {text}"
         )
-
-        send_message(
-            ADMIN_CHAT_ID,
-            alert
-        )
-
+        send_message(ADMIN_CHAT_ID, alert)
         send_message(
             chat_id,
-            "Got it. I've flagged this for a CEO Exchange "
-            "admin. Please keep any payment or order evidence.",
+            "Got it - flagging this for an admin now. Hang tight, someone will jump in.",
             message_thread_id=thread_id,
-            reply_to_message_id=message_id
+            reply_to_message_id=message_id,
         )
+        logger.info("Escalation flagged chat_id=%s user=%s thread_id=%s", chat_id, username, thread_id)
+        return jsonify(ok=True)
 
-        return jsonify(
-            ok=True
-        )
-
-    # ========================================================
+    # ============================================
     # AI SUPPORT
-    # ========================================================
+    # ============================================
 
     if bot_was_addressed(message):
+        reply = ask_ai(text)
+        send_message(chat_id, reply, message_thread_id=thread_id, reply_to_message_id=message_id)
 
-        reply = ask_ai(
-            text
-        )
-
-        send_message(
-            chat_id,
-            reply,
-            message_thread_id=thread_id,
-            reply_to_message_id=message_id
-        )
-
-    return jsonify(
-        ok=True
-    )
+    return jsonify(ok=True)
 
 
-# ============================================================
-# HEALTH CHECK
-# ============================================================
-
-@app.route(
-    "/",
-    methods=["GET"]
-)
+@app.route("/", methods=["GET"])
 def health():
-
     return "CEO Exchange bot is running."
 
 
-# ============================================================
-# SET WEBHOOK
-# ============================================================
-
-@app.route(
-    "/set-webhook",
-    methods=["GET"]
-)
+@app.route("/set-webhook", methods=["GET"])
 def set_webhook():
-
     if not PUBLIC_URL:
+        return jsonify(ok=False, error="Set the PUBLIC_URL environment variable first."), 400
 
-        return jsonify(
-            ok=False,
-            error=(
-                "PUBLIC_URL environment variable "
-                "is not configured."
-            )
-        ), 400
+    r = requests.get(f"{TELEGRAM_API}/setWebhook", params={"url": f"{PUBLIC_URL.rstrip('/')}/webhook"})
+    return jsonify(r.json())
 
-    try:
-
-        response = requests.get(
-            f"{TELEGRAM_API}/setWebhook",
-            params={
-                "url": (
-                    f"{PUBLIC_URL.rstrip('/')}"
-                    "/webhook"
-                )
-            },
-            timeout=15
-        )
-
-        return jsonify(
-            response.json()
-        )
-
-    except Exception:
-
-        logger.exception(
-            "set_webhook failed"
-        )
-
-        return jsonify(
-            ok=False,
-            error="Failed to configure webhook."
-        ), 500
-
-
-# ============================================================
-# START SERVER
-# ============================================================
 
 if __name__ == "__main__":
-
-    port = int(
-        os.environ.get(
-            "PORT",
-            10000
-        )
-    )
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)

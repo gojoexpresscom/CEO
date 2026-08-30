@@ -2332,68 +2332,239 @@ def clean_ai_reply(text):
 
 
 def ask_ai(user_text):
+    """
+    Reliable Groq AI request with automatic retry/backoff.
 
-    try:
+    Handles:
+    - 429 rate limits
+    - temporary API errors
+    - connection errors
+    - malformed responses
+    """
 
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": (
-                    f"Bearer {GROQ_API_KEY}"
-                ),
-                "Content-Type": (
-                    "application/json"
-                ),
+    url = "https://api.groq.com/openai/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model": "openai/gpt-oss-20b",
+        "max_tokens": 400,
+        "temperature": 0.3,
+        "messages": [
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT,
             },
-            json={
-                "model": "openai/gpt-oss-20b",
-                "temperature": 0.35,
-                "max_tokens": 600,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": SYSTEM_PROMPT,
-                    },
-                    {
-                        "role": "user",
-                        "content": user_text,
-                    },
-                ],
+            {
+                "role": "user",
+                "content": user_text,
             },
-            timeout=30,
-        )
+        ],
+    }
 
-        response.raise_for_status()
+    max_attempts = 4
 
-        data = response.json()
+    for attempt in range(max_attempts):
 
-        reply = (
-            data["choices"][0]["message"]
-            ["content"]
-            .strip()
-        )
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=30,
+            )
 
-        reply = clean_ai_reply(reply)
+            # --------------------------------------------
+            # SUCCESS
+            # --------------------------------------------
 
-        return (
-            reply
-            or
-            "Sorry, I couldn't put together "
-            "a reply just now."
-        )
+            if response.ok:
 
-    except Exception:
+                data = response.json()
 
-        logger.exception(
-            "ask_ai failed"
-        )
+                choices = data.get(
+                    "choices",
+                    [],
+                )
 
-        return (
-            "Sorry, I hit an error answering "
-            "that. If it's urgent or involves "
-            "a transaction, please contact a "
-            "CEO Exchange admin."
-        )
+                if choices:
+
+                    message = choices[0].get(
+                        "message",
+                        {},
+                    )
+
+                    reply = (
+                        message.get(
+                            "content",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+
+                    if reply:
+                        return reply
+
+                logger.error(
+                    "Groq returned an empty response."
+                )
+
+                return (
+                    "Sorry, I couldn't generate a "
+                    "reply right now. Please try again."
+                )
+
+            # --------------------------------------------
+            # RATE LIMIT — 429
+            # --------------------------------------------
+
+            if response.status_code == 429:
+
+                retry_after = response.headers.get(
+                    "Retry-After"
+                )
+
+                try:
+                    wait_seconds = float(
+                        retry_after
+                    )
+                except (
+                    TypeError,
+                    ValueError,
+                ):
+                    wait_seconds = min(
+                        2 ** attempt,
+                        15,
+                    )
+
+                logger.warning(
+                    "Groq rate limit (429). "
+                    "Attempt %s/%s. "
+                    "Waiting %.1f seconds.",
+                    attempt + 1,
+                    max_attempts,
+                    wait_seconds,
+                )
+
+                if attempt < max_attempts - 1:
+
+                    import time
+
+                    time.sleep(
+                        wait_seconds
+                    )
+
+                    continue
+
+                return (
+                    "I'm receiving too many requests "
+                    "right now. Please try again in a "
+                    "little while."
+                )
+
+            # --------------------------------------------
+            # TEMPORARY SERVER ERRORS
+            # --------------------------------------------
+
+            if response.status_code in (
+                500,
+                502,
+                503,
+                504,
+            ):
+
+                logger.warning(
+                    "Groq temporary server error "
+                    "status=%s attempt=%s/%s",
+                    response.status_code,
+                    attempt + 1,
+                    max_attempts,
+                )
+
+                if attempt < max_attempts - 1:
+
+                    import time
+
+                    time.sleep(
+                        min(
+                            2 ** attempt,
+                            10,
+                        )
+                    )
+
+                    continue
+
+            # --------------------------------------------
+            # OTHER API ERRORS
+            # --------------------------------------------
+
+            logger.error(
+                "Groq API error "
+                "status=%s response=%s",
+                response.status_code,
+                response.text[:1000],
+            )
+
+            return (
+                "Sorry, I'm having trouble "
+                "answering right now. "
+                "Please try again shortly."
+            )
+
+        # --------------------------------------------
+        # CONNECTION / REQUEST ERROR
+        # --------------------------------------------
+
+        except requests.RequestException as error:
+
+            logger.warning(
+                "Groq request error "
+                "attempt=%s/%s error=%s",
+                attempt + 1,
+                max_attempts,
+                error,
+            )
+
+            if attempt < max_attempts - 1:
+
+                import time
+
+                time.sleep(
+                    min(
+                        2 ** attempt,
+                        10,
+                    )
+                )
+
+                continue
+
+            logger.exception(
+                "ask_ai failed after all retries."
+            )
+
+            return (
+                "Sorry, I can't reach the AI service "
+                "right now. Please try again shortly."
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Unexpected ask_ai error."
+            )
+
+            return (
+                "Sorry, I hit an unexpected error "
+                "while answering. Please try again."
+            )
+
+    return (
+        "Sorry, I couldn't answer right now. "
+        "Please try again shortly."
+    )
 
 
 # ============================================================

@@ -6,6 +6,7 @@ from html import escape
 
 import requests
 from flask import Flask, request, jsonify
+from google import genai
 
 
 # ============================================================

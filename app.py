@@ -27,7 +27,7 @@ app = Flask(__name__)
 # ============================================================
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 ADMIN_CHAT_ID = os.environ["ADMIN_CHAT_ID"]
 
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
